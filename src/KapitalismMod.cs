@@ -12,23 +12,14 @@ using UnityEngine.UIElements;
 using UitkForKsp2.API;
 using KSP.UI;
 using KSP.OAB;
-using KSP;
 using static KSP.OAB.ObjectAssemblyBuilder;
 using KSP.Game.Missions;
-using KSP.Game.Load;
 using KSP.Game.Missions.Definitions;
-using KSP.IO;
-using UnityEngine.TextCore.Text;
-using TextAsset = UnityEngine.TextAsset;
-using Shapes;
-using KSP.Messages;
 using KSP.Game.Science;
-using System;
-using KSP.Sim.impl;
-using System.Runtime.CompilerServices;
+using static KSP.Networking.MP.Utils.ErrorFlag;
 
 namespace Kapitalism;
-[BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.1")]
+[BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.1.1")]
 [BepInDependency(ShadowUtilityLIBMod.ModId, ShadowUtilityLIBMod.ModVersion)]
 public class KapitalismMod : BaseUnityPlugin
 {
@@ -81,13 +72,15 @@ public static class K
 {
     public static string ModId = "com.shadowdev.kapitalism";
     public static string ModName = "Kapitalism";
-    public static string ModVersion = "0.0.1";
+    public static string ModVersion = "0.0.1.1";
     private static Logger logger = new(ModName, ModVersion);
     public static Kconfig config = new();
     public static SaveData saveData = new();
     public static string BuffersaveData = "";
     public static string LaunchClickBuffersaveData = "";
     public static PanelSettings UIPanelSettings;
+
+    public static string Filename = "";
 
     public static List<GameObject> ValuesToUpdate = new List<GameObject>();
     public static List<KPartData> PartCostData = new List<KPartData>() { new KPartData() { cost = 10, partName = "test"} };
@@ -589,15 +582,27 @@ public static class K
 public static class Kpatch
 {
     private static Logger logger = new Logger(K.ModName, K.ModVersion);
-    [HarmonyPatch(typeof(LoadOrSaveCampaignTicket))]
+    [HarmonyPatch(typeof(SaveLoadManager))]
     [HarmonyPatch("StartLoadOrSaveOperation")]
     [HarmonyPostfix]
-    public static void LoadOrSaveCampaignTicket_StartLoadOrSaveOperation(LoadOrSaveCampaignTicket __instance)
+    public static void SaveLoadManager_StartLoadOrSaveOperation(SaveLoadManager __instance, ref LoadOrSaveCampaignTicket loadOrSaveCampaignTicket)
     {
         try
         {
+            logger.Log(__instance.ActiveCampaignFolderPath);
+            logger.Log(loadOrSaveCampaignTicket._loadFileName);
+            logger.Log(loadOrSaveCampaignTicket._saveFileName);
             logger.Log(GameManager.Instance.Game.SessionManager.ActiveCampaignName);
-            string SaveLocation = $"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}/kapitalism.json";
+            if (loadOrSaveCampaignTicket._saveFileName.Length > 0)
+            {
+                K.Filename = loadOrSaveCampaignTicket._saveFileName.Split("\\")[loadOrSaveCampaignTicket._saveFileName.Split("\\").Length - 1];
+            }
+            if (loadOrSaveCampaignTicket._loadFileName.Length > 0)
+            {
+                K.Filename = loadOrSaveCampaignTicket._loadFileName.Split("\\")[loadOrSaveCampaignTicket._loadFileName.Split("\\").Length - 1];
+            }
+            
+            string SaveLocation = $"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}/kapitalism/{K.Filename}";
             string SaveLocationM = $"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}/missions";
             logger.Log(SaveLocation);
             if (!Directory.Exists($"./ModSaveData"))
@@ -607,6 +612,10 @@ public static class Kpatch
             if (!Directory.Exists($"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}"))
             {
                 Directory.CreateDirectory($"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}");
+            }
+            if (!Directory.Exists($"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}/kapitalism"))
+            {
+                Directory.CreateDirectory($"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}/kapitalism");
             }
             void LoadSave()
             {
@@ -653,11 +662,12 @@ public static class Kpatch
                     K.BuffersaveData = "";
                 }
             }
-            logger.Debug($"{__instance._loadOrSaveCampaignOperation}");
-            switch (__instance._loadOrSaveCampaignOperation)
+            logger.Debug($"{loadOrSaveCampaignTicket._loadOrSaveCampaignOperation}");
+            switch (loadOrSaveCampaignTicket._loadOrSaveCampaignOperation)
             {
                 case LoadOrSaveCampaignOperation.None: break;
                 case LoadOrSaveCampaignOperation.Load_StartNewCampaign:
+                    K.saveData.SelectAdmin = true;
                     LoadSave();
                     break;
                 case LoadOrSaveCampaignOperation.Load_StartExistingCampaignFromJsonString:
@@ -751,9 +761,9 @@ public static class Kpatch
                     totalCost += GameManager.Instance.Game.Parts._partData[part.PartName].data.cost;
                 });
             }
+            K.LaunchClickBuffersaveData = JsonConvert.SerializeObject(K.saveData);
             if (K.UseFunding(totalCost))
             {
-                K.LaunchClickBuffersaveData = JsonConvert.SerializeObject(K.saveData);
                 __result = true;
             }
             else
@@ -896,4 +906,13 @@ public static class Kpatch
 
         }
     }
+    //[HarmonyPatch(typeof(NestedPrefabSpawner))]
+    //[HarmonyPatch("Awake")]
+    //[HarmonyPrefix]
+    //public static bool NestedPrefabSpawner_Awake(NestedPrefabSpawner __instance)
+    //{
+    //    __instance.Prefabs.Add(__instance.Prefabs[0]);
+        
+    //    return true;
+    //}
 }
