@@ -6,7 +6,6 @@ using HarmonyLib;
 using Newtonsoft.Json;
 using KSP.Game;
 using UnityEngine;
-using TMPro;
 using KSP.Sim.Definitions;
 using UnityEngine.UIElements;
 using UitkForKsp2.API;
@@ -16,10 +15,9 @@ using static KSP.OAB.ObjectAssemblyBuilder;
 using KSP.Game.Missions;
 using KSP.Game.Missions.Definitions;
 using KSP.Game.Science;
-using static KSP.Networking.MP.Utils.ErrorFlag;
 
 namespace Kapitalism;
-[BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.1.1")]
+[BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.2.1")]
 [BepInDependency(ShadowUtilityLIBMod.ModId, ShadowUtilityLIBMod.ModVersion)]
 public class KapitalismMod : BaseUnityPlugin
 {
@@ -61,18 +59,21 @@ public class SaveData
 {
     public float Budget = 0;
     public float BudgetModifier = 1;
+    public float ScienceModifier = 1;
+    public float MaterialModifier = 1;
     public float Funds = 0;
     public bool SelectAdmin = true;
     public AdministrationType administrationType = AdministrationType.Kapitalist;
     public int CurrentYear = 0;
     public float DificultyScale = 1;
+    public List<string> DoneMissions = new List<string>();
 }
 
 public static class K
 {
     public static string ModId = "com.shadowdev.kapitalism";
     public static string ModName = "Kapitalism";
-    public static string ModVersion = "0.0.1.1";
+    public static string ModVersion = "0.0.2.1";
     private static Logger logger = new(ModName, ModVersion);
     public static Kconfig config = new();
     public static SaveData saveData = new();
@@ -86,7 +87,7 @@ public static class K
     public static List<KPartData> PartCostData = new List<KPartData>() { new KPartData() { cost = 10, partName = "test"} };
 
     public static UIDocument administrationPickerPopupWindow;
-
+    public static UIDocument KapitalismStatsWindow;
 
     public static bool justClicked = false;
 
@@ -154,6 +155,7 @@ public static class K
         {
             AdministrationPickerPopup();
             PartPriceSetterPopup();
+            KapitalismStats();
         }
         catch (Exception e)
         {
@@ -161,64 +163,71 @@ public static class K
 
         }
     }
+    public static void UpdateSpendDisplay(float value)
+    {
+        KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend").text = $"spend £{value}";
+    }
+    public static void setSpendDisplayMode(bool enable)
+    {
+        if (enable)
+        {
+            KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend").visible = true;
+            KapitalismStatsWindow.rootVisualElement.style.height = 50;
+        }
+        else
+        {
+            KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend").visible = false;
+            KapitalismStatsWindow.rootVisualElement.style.height = 25;
+        }
+    }
     public static void UpdateDisplay()
     {
-        ValuesToUpdate.ForEach((FundsObject) =>
-        {
-            try
-            {
-                FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-            }
-            catch (Exception e)
-            {
-                logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-            }
-        });
+        KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Cost").text = $"£{saveData.Budget + saveData.Funds}";
     }
     public static void UpdateBudgetModifier(float value)
     {
         saveData.BudgetModifier += value;
-        ValuesToUpdate.ForEach((FundsObject) =>
-        {
-            try
-            {
-                FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-            }
-            catch (Exception e)
-            {
-                logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-            }
-        });
+        UpdateDisplay();
     }
     public static void UpdateBudget()
     {
         saveData.Budget = defaultBudget * saveData.BudgetModifier;
-        ValuesToUpdate.ForEach((FundsObject) =>
+        GameManager.Instance.Game.UI.NotificationProvider.PushAlertNotification(new NotificationData()
         {
-            try
+            TimeStamp = GameManager.Instance.Game.UniverseModel.Time.UniverseTime,
+            AlertTitle = new NotificationLineItemData()
             {
-                FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-            }
-            catch (Exception e)
+                LocKey = $"New Budget"
+            },
+            FirstLine = new NotificationLineItemData()
             {
-                logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-            }
+                LocKey = $"Your new budget is {saveData.Budget}"
+            },
+            Importance = NotificationImportance.Medium,
+            TimerDuration = 20f
+
         });
+        UpdateDisplay();
     }
     public static void UpdateFunds(float value)
     {
-        saveData.Funds += value;
-        ValuesToUpdate.ForEach((FundsObject) =>
+        GameManager.Instance.Game.UI.NotificationProvider.PushAlertNotification(new NotificationData()
         {
-            try
+            TimeStamp = GameManager.Instance.Game.UniverseModel.Time.UniverseTime,
+            AlertTitle = new NotificationLineItemData()
             {
-                FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-            }
-            catch (Exception e)
+                LocKey = $"Funds updated"
+            },
+            FirstLine = new NotificationLineItemData()
             {
-                logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-            }
-        });
+                LocKey = $"Funds added {value}"
+            },
+            Importance = NotificationImportance.Medium,
+            TimerDuration = 20f
+
+        }) ;
+        saveData.Funds += value;
+        UpdateDisplay();
     } 
 
     public static bool UseFunding(float value)
@@ -234,30 +243,10 @@ public static class K
                 saveData.Budget = 0;
                 saveData.Funds -= value;
             }
-            ValuesToUpdate.ForEach((FundsObject) =>
-            {
-                try
-                {
-                    FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-                }
-                catch (Exception e)
-                {
-                    logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-                }
-            });
+            UpdateDisplay();
             return true;
         }
-        ValuesToUpdate.ForEach((FundsObject) =>
-        {
-            try
-            {
-                FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-            }
-            catch (Exception e)
-            {
-                logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-            }
-        });
+        UpdateDisplay();
         return false;
     }
     public static void AdministrationPickerPopup()
@@ -358,6 +347,7 @@ public static class K
                     saveData.BudgetModifier = AdministrationBudgetMultiplier[(int)administrationType];
                     UpdateBudget();
                     File.WriteAllText($"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}/kapitalism.json", JsonConvert.SerializeObject(K.saveData));
+                    KapitalismStatsWindow.rootVisualElement.visible = true;
                 });
                 void AddMultiplierText(List<float> Multiplier,string mtype)
                 {
@@ -445,91 +435,88 @@ public static class K
             logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
         }
     }
+    public static void KapitalismStats()
+    {
+        try
+        {
+            int Width = 200;
+            int Height = 25;
+
+            VisualElement KapitalismStats_window = Element.Root("KapitalismStats_window");
+            IStyle style_KapitalismStats_window = KapitalismStats_window.style;
+            style_KapitalismStats_window.width = Width;
+            style_KapitalismStats_window.height = Height;
+            style_KapitalismStats_window.position = Position.Absolute;
+            style_KapitalismStats_window.left = 1920 - 200;
+            style_KapitalismStats_window.top = 40;
+            //margin
+            style_KapitalismStats_window.marginBottom = 0;
+            style_KapitalismStats_window.marginTop = 0;
+            style_KapitalismStats_window.marginLeft = 0;
+            style_KapitalismStats_window.marginRight = 0;
+            //padding
+            style_KapitalismStats_window.paddingBottom = 0;
+            style_KapitalismStats_window.paddingTop = 0;
+            style_KapitalismStats_window.paddingLeft = 0;
+            style_KapitalismStats_window.paddingRight = 0;
+
+            style_KapitalismStats_window.backgroundColor = new StyleColor(new Color(0f,0f,0f,0.9f));
+
+            Label KapitalismStats_window_Cost = Element.Label("KapitalismStats_window_Cost", $"£{saveData.Budget + saveData.Funds}");
+            KapitalismStats_window.Add(KapitalismStats_window_Cost);
+            Label KapitalismStats_window_Spend = Element.Label("KapitalismStats_window_Spend", $"Spend £{0}");
+            KapitalismStats_window_Spend.visible = false;
+            KapitalismStats_window.Add(KapitalismStats_window_Spend);
+
+            KapitalismStatsWindow = Window.CreateFromElement(KapitalismStats_window);
+            KapitalismStatsWindow.rootVisualElement.visible = false;
+        }
+        catch (Exception e)
+        {
+            logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
+        }
+    }
     public static void Update()
     {
+        //dont run update if not loaded
+        try
+        {
+            if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.KerbalSpaceCenter)
+            {
+
+            }
+        }
+        catch (Exception e)
+        {
+            return;
+        }
         try
         {
             if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.KerbalSpaceCenter && saveData.SelectAdmin && administrationPickerPopupWindow.rootVisualElement.visible == false)
             {
                 administrationPickerPopupWindow.rootVisualElement.visible = true;
+                KapitalismStatsWindow.rootVisualElement.visible = false;
             }
-            if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.KerbalSpaceCenter && GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/Colony/GlobalHeaderScienceTotal/Funds") == null)
+            if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.KerbalSpaceCenter && KapitalismStatsWindow.rootVisualElement.visible == false)
             {
-                GameObject FundsObject = GameObject.Instantiate(
-                    GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/Colony/GlobalHeaderScienceTotal"),
-                    GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/Colony/GlobalHeaderScienceTotal").transform);
-                try
-                {
-                    FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-                    FundsObject.name = "Funds";
-                    FundsObject.GetChild("Science Icon").DestroyGameObject();
-                    ValuesToUpdate.Add(FundsObject);
-                }
-                catch (Exception e)
-                {
-                    try
-                    {
-                        FundsObject.DestroyGameObject();
-                    }
-                    catch (Exception ee)
-                    {
-                        //logger.Error($"{ee}\n{ee.Message}\n{ee.InnerException}\n{ee.Source}\n{ee.Data}\n{ee.HelpLink}\n{ee.HResult}\n{ee.StackTrace}\n{ee.TargetSite}\n{ee.GetBaseException()}");
-                    }
-                    //logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-                }
 
+                KapitalismStatsWindow.rootVisualElement.visible = true;
+                setSpendDisplayMode(false);
             }
-            if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.MissionControl && GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/GHMissionControl/GlobalHeaderScienceTotal/Funds") == null)
+            if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.MissionControl && KapitalismStatsWindow.rootVisualElement.visible == false)
             {
-                GameObject FundsObject = GameObject.Instantiate(
-                    GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/GHMissionControl/GlobalHeaderScienceTotal"),
-                    GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/GHMissionControl/GlobalHeaderScienceTotal").transform);
-
-                try
-                {
-                    FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-                    FundsObject.GetChild("Science Icon").DestroyGameObject();
-                    FundsObject.name = "Funds";
-                    ValuesToUpdate.Add(FundsObject);
-                }
-                catch (Exception e)
-                {
-                    try
-                    {
-                        FundsObject.DestroyGameObject();
-                    }
-                    catch (Exception ee)
-                    {
-                        //logger.Error($"{ee}\n{ee.Message}\n{ee.InnerException}\n{ee.Source}\n{ee.Data}\n{ee.HelpLink}\n{ee.HResult}\n{ee.StackTrace}\n{ee.TargetSite}\n{ee.GetBaseException()}");
-                    }
-                    //logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-                }
+                KapitalismStatsWindow.rootVisualElement.visible = true;
+                setSpendDisplayMode(false);
             }
-            if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.ResearchAndDevelopment && GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/ResearchDevelopment/GlobalHeaderScienceTotal/Funds") == null)
+            if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.ResearchAndDevelopment && KapitalismStatsWindow.rootVisualElement.visible == false)
             {
-                GameObject FundsObject = GameObject.Instantiate(
-                    GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/ResearchDevelopment/GlobalHeaderScienceTotal"),
-                    GameObject.Find("GameManager/Default Game Instance(Clone)/UI Manager(Clone)/Main Canvas/GlobalHeader(Clone)/Canvas/Contextual/ResearchDevelopment/GlobalHeaderScienceTotal").transform);
-
-                try
-                {
-                    FundsObject.GetChild("Player Science").GetComponent<TextMeshProUGUI>().text = $"£{saveData.Budget + saveData.Funds}";
-                    FundsObject.GetChild("Science Icon").DestroyGameObject();
-                    FundsObject.name = "Funds";
-                    ValuesToUpdate.Add(FundsObject);
-                }
-                catch (Exception e)
-                {
-                    try
-                    {
-                        FundsObject.DestroyGameObject();
-                    }
-                    catch (Exception ee)
-                    {
-                        //logger.Error($"{ee}\n{ee.Message}\n{ee.InnerException}\n{ee.Source}\n{ee.Data}\n{ee.HelpLink}\n{ee.HResult}\n{ee.StackTrace}\n{ee.TargetSite}\n{ee.GetBaseException()}");
-                    }
-                    //logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
-                }
+                KapitalismStatsWindow.rootVisualElement.visible = true;
+                setSpendDisplayMode(false);
+            }
+            if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.FlightView && KapitalismStatsWindow.rootVisualElement.visible == true)
+            {
+                KapitalismStatsWindow.rootVisualElement.visible = false;
+                setSpendDisplayMode(false);
             }
             try
             {
@@ -544,32 +531,54 @@ public static class K
             {
                 //logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
             }
-
-            if (Input.GetMouseButtonDown(1) && config.PartCostEditor)
+            if(GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.VehicleAssemblyBuilder)
             {
-
-                justClicked = true;
-                GameStateConfiguration gameStateConfiguration = GameManager.Instance.Game.GlobalGameState.GetGameState();
-                
-                if (gameStateConfiguration.IsObjectAssembly && GameManager.Instance.Game.OAB.Current.ActivePartTracker.partGrabbed == null)
+                if (KapitalismStatsWindow.rootVisualElement.visible == false)
                 {
-                    var tempobj = GameObject.Find("OAB(Clone)");
-                    if (tempobj.GetComponent<ObjectAssemblyBuilderInstance>().ActivePartTracker.PartsUnderCursor.Length > 0)
-                    {
-                        assemblyPart = tempobj.GetComponent<ObjectAssemblyBuilderInstance>().ActivePartTracker.PartsUnderCursor.Last().Key;
-                        PartPriceSetterPopupPopupWindow.rootVisualElement.Q<Label>("Kapitalism_PartPriceSetterPopup_selectedPart").text = assemblyPart.PartName;
-                        PartPriceSetterPopupPopupWindow.rootVisualElement.Q<TextField>("Kapitalism_PartPriceSetterPopup_selectedPart_Price").value = $"{PartCostData.First(p => p.partName == assemblyPart.PartName).cost}";
-                        showPartMenuUI = true;
-                        PartPriceSetterPopupPopupWindow.rootVisualElement.visible = true;
-                    }
+                    KapitalismStatsWindow.rootVisualElement.visible = true;
+                    
                 }
+                setSpendDisplayMode(true);
+                float totalCost = 0;
+                try{
+                    GameManager.Instance.Game.OAB.Current.eventsManager.builder.Stats.MainAssembly.Parts.ForEach(part =>
+                    {
+                        totalCost += GameManager.Instance.Game.Parts._partData[part.PartName].data.cost;
+                    });
+                }
+                catch(Exception e)
+                {
+                    
+                }
+                UpdateSpendDisplay(totalCost);
+                if (Input.GetMouseButtonDown(1) && config.PartCostEditor)
+                {
+                    justClicked = true;
+                    if (GameManager.Instance.Game.OAB.Current.ActivePartTracker.partGrabbed == null)
+                    {
+                        var tempobj = GameObject.Find("OAB(Clone)");
+                        if (tempobj.GetComponent<ObjectAssemblyBuilderInstance>().ActivePartTracker.PartsUnderCursor.Length > 0)
+                        {
+                            assemblyPart = tempobj.GetComponent<ObjectAssemblyBuilderInstance>().ActivePartTracker.PartsUnderCursor.Last().Key;
+                            PartPriceSetterPopupPopupWindow.rootVisualElement.Q<Label>("Kapitalism_PartPriceSetterPopup_selectedPart").text = assemblyPart.PartName;
+                            PartPriceSetterPopupPopupWindow.rootVisualElement.Q<TextField>("Kapitalism_PartPriceSetterPopup_selectedPart_Price").value = $"{PartCostData.First(p => p.partName == assemblyPart.PartName).cost}";
+                            showPartMenuUI = true;
+                            PartPriceSetterPopupPopupWindow.rootVisualElement.visible = true;
+                        }
+                    }
 
 
+                }
+                if (Input.GetMouseButtonDown(2))
+                {
+                    PartPriceSetterPopupPopupWindow.rootVisualElement.visible = false;
+                }
             }
-            if (Input.GetMouseButtonDown(2))
+            else
             {
                 PartPriceSetterPopupPopupWindow.rootVisualElement.visible = false;
             }
+            
         }
         catch (Exception e)
         {
@@ -780,6 +789,24 @@ public static class Kpatch
         }
         
     }
+    [HarmonyPatch(typeof(ScienceManager))]
+    [HarmonyPatch("TrySubmitCompletedResearchReport")]
+    [HarmonyPostfix]
+    public static void ScienceManager_TrySubmitCompletedResearchReport(ref bool __result, ScienceManager __instance, ref CompletedResearchReport report)
+    {
+        try
+        {
+            float Funds =  report.FinalScienceValue * (K.saveData.ScienceModifier * 76);
+            K.UpdateFunds(Funds);
+        }
+        catch (Exception e)
+        {
+            logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
+            __result = false;
+            Utils.MessageUser("Kapitalism error");
+        }
+
+    }
     //public class MissionRewardUpdate
     //{
     //    public string MissionID;
@@ -837,14 +864,14 @@ public static class Kpatch
     //                    __instance._game.KSP2MissionManager.OnMissionDataItemLoaded(new TextAsset(File.ReadAllText(file)));
     //                });
     //            }
-               
+
     //        }
     //        catch (Exception e)
     //        {
     //            logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
 
     //        }
-            
+
     //        __instance._resolve();
     //    }
     //    catch (Exception e)
@@ -890,11 +917,16 @@ public static class Kpatch
                 MissionSaveData missionSaveData;
                 if (missionDefinition.Owner == MissionOwner.Agency && SaveLoadMissionUtils.TryGetMissionSaveData(agencyMissionSaveData, missionDefinition.ID, out missionSaveData) && missionSaveData.TurnedIn)
                 {
-                    logger.Log("GetKapitalismMissionData");
-                    float[] tmpRewards = GetKapitalismMissionData(missionDefinition);
-                    Rewards[0] += tmpRewards[0];
-                    Rewards[1] += tmpRewards[1];
-                    logger.Log($"Rewards[0] {Rewards[0]} | Rewards[1] {Rewards[1]}");
+                    if (K.saveData.DoneMissions.Contains(missionDefinition.ID)) { } else
+                    {
+                        logger.Log("GetKapitalismMissionData " + missionSaveData.Completed);
+                        float[] tmpRewards = GetKapitalismMissionData(missionDefinition);
+                        Rewards[0] += tmpRewards[0];
+                        Rewards[1] += tmpRewards[1];
+                        logger.Log($"Rewards[0] {Rewards[0]} | Rewards[1] {Rewards[1]}");
+                        K.saveData.DoneMissions.Add(missionDefinition.ID);
+                    }
+                    
                 }
             }
             K.UpdateFunds(Rewards[1]);
