@@ -17,7 +17,7 @@ using KSP.Game.Missions.Definitions;
 using KSP.Game.Science;
 
 namespace Kapitalism;
-[BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.2.1")]
+[BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.3")]
 [BepInDependency(ShadowUtilityLIBMod.ModId, ShadowUtilityLIBMod.ModVersion)]
 public class KapitalismMod : BaseUnityPlugin
 {
