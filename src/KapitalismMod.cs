@@ -15,7 +15,7 @@ using static KSP.OAB.ObjectAssemblyBuilder;
 using KSP.Game.Missions;
 using KSP.Game.Missions.Definitions;
 using KSP.Game.Science;
-
+ 
 namespace Kapitalism;
 [BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.2.1")]
 [BepInDependency(ShadowUtilityLIBMod.ModId, ShadowUtilityLIBMod.ModVersion)]
