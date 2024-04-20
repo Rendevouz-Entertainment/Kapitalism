@@ -15,7 +15,7 @@ using static KSP.OAB.ObjectAssemblyBuilder;
 using KSP.Game.Missions;
 using KSP.Game.Missions.Definitions;
 using KSP.Game.Science;
-
+ 
 namespace Kapitalism;
 [BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.3")]
 [BepInDependency(ShadowUtilityLIBMod.ModId, ShadowUtilityLIBMod.ModVersion)]
@@ -345,6 +345,8 @@ public static class K
                     saveData.administrationType = administrationType;
                     administrationPickerPopupWindow.rootVisualElement.visible = false;
                     saveData.BudgetModifier = AdministrationBudgetMultiplier[(int)administrationType];
+                    saveData.ScienceModifier = AdministrationScienceMultiplier[(int)administrationType];
+                    saveData.MaterialModifier = AdministrationMaterialMultiplier[(int)administrationType];
                     UpdateBudget();
                     File.WriteAllText($"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}/kapitalism.json", JsonConvert.SerializeObject(K.saveData));
                     KapitalismStatsWindow.rootVisualElement.visible = true;
