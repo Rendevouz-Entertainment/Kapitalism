@@ -15,9 +15,19 @@ using static KSP.OAB.ObjectAssemblyBuilder;
 using KSP.Game.Missions;
 using KSP.Game.Missions.Definitions;
 using KSP.Game.Science;
+using Shapes;
+using KSP.Sim.ResourceSystem;
+using static KSP.Sim.ResourceSystem.ResourceDefinitionDatabase;
+using KSP.Game.Flow;
+using KSP.Game.Load;
+using static KSP.Networking.MP.Utils.ErrorFlag;
+using KSP.Sim;
+using System.Collections.Generic;
+using Position = UnityEngine.UIElements.Position;
+using KSP.Modules;
 
 namespace Kapitalism;
-[BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.2.1")]
+[BepInPlugin("com.shadowdev.kapitalism", "Kapitalism", "0.0.3")]
 [BepInDependency(ShadowUtilityLIBMod.ModId, ShadowUtilityLIBMod.ModVersion)]
 public class KapitalismMod : BaseUnityPlugin
 {
@@ -54,6 +64,7 @@ public enum AdministrationType
     Teknokratist,//thanks Safarte //updated name thanks Falki
     Anarkist//thanks Cheese
 }
+
 [Serializable]
 public class SaveData
 {
@@ -67,6 +78,7 @@ public class SaveData
     public int CurrentYear = 0;
     public float DificultyScale = 1;
     public List<string> DoneMissions = new List<string>();
+    public Dictionary<string, float> MaterialStorage = new Dictionary<string, float>();
 }
 
 public static class K
@@ -88,15 +100,15 @@ public static class K
 
     public static UIDocument administrationPickerPopupWindow;
     public static UIDocument KapitalismStatsWindow;
-
+    public static UIDocument KapitalismAdministrationWindow;
     public static bool justClicked = false;
 
     public static List<float> AdministrationBudgetMultiplier = new List<float>()
     {
-        5,
-        3,
-        3,
-        0.5f,
+        20,
+        10,
+        10,
+        5f,
     };
     public static List<float> AdministrationMaterialMultiplier = new List<float>()
     {
@@ -125,7 +137,7 @@ public static class K
         try
         {
             Harmony.CreateAndPatchAll(typeof(Kpatch));
-            PartCostData = JsonConvert.DeserializeObject<List<KPartData>>(File.ReadAllText($"./BepInEx/plugins/Kapitalsim/PartData.json"));
+            PartCostData = JsonConvert.DeserializeObject<List<KPartData>>(File.ReadAllText($"./BepInEx/plugins/Kapitalism/PartData.json"));
         }
         catch (Exception e)
         {
@@ -163,20 +175,29 @@ public static class K
 
         }
     }
-    public static void UpdateSpendDisplay(float value)
+    public static void UpdateSpendDisplay(float value, float resourceCost = 0)
     {
-        KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend").text = $"spend £{value}";
+        KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend").text = $"Total £{value + resourceCost}";
+        KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Part").text = $"Parts £{value}";
+        KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Material").text = $"Material £{resourceCost}";
+        KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Left").text = $"New Balance £{(saveData.Funds + saveData.Budget) - (resourceCost + value)}";
     }
     public static void setSpendDisplayMode(bool enable)
     {
         if (enable)
         {
             KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend").visible = true;
-            KapitalismStatsWindow.rootVisualElement.style.height = 50;
+            KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Part").visible = true;
+            KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Material").visible = true;
+            KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Left").visible = true;
+            KapitalismStatsWindow.rootVisualElement.style.height = 135;
         }
         else
         {
             KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend").visible = false;
+            KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Part").visible = false;
+            KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Material").visible = false;
+            KapitalismStatsWindow.rootVisualElement.Q<Label>("KapitalismStats_window_Spend_Left").visible = false;
             KapitalismStatsWindow.rootVisualElement.style.height = 25;
         }
     }
@@ -248,6 +269,22 @@ public static class K
         }
         UpdateDisplay();
         return false;
+    }
+
+    public static void UseResources(Dictionary<string,float> ResourcesToUse)
+    {
+        ResourcesToUse.ForEach(kv =>
+        {
+            if (K.saveData.MaterialStorage[kv.Key] < kv.Value)
+            {
+                K.saveData.MaterialStorage[kv.Key] = 0;
+            }
+            else
+            {
+                K.saveData.MaterialStorage[kv.Key] -= kv.Value;
+            }
+        });
+
     }
     public static void AdministrationPickerPopup()
     {
@@ -345,9 +382,12 @@ public static class K
                     saveData.administrationType = administrationType;
                     administrationPickerPopupWindow.rootVisualElement.visible = false;
                     saveData.BudgetModifier = AdministrationBudgetMultiplier[(int)administrationType];
+                    saveData.ScienceModifier = AdministrationScienceMultiplier[(int)administrationType];
+                    saveData.MaterialModifier = AdministrationMaterialMultiplier[(int)administrationType];
                     UpdateBudget();
                     File.WriteAllText($"./ModSaveData/{GameManager.Instance.Game.SessionManager.ActiveCampaignName}/kapitalism.json", JsonConvert.SerializeObject(K.saveData));
                     KapitalismStatsWindow.rootVisualElement.visible = true;
+                    UpdateDisplay();
                 });
                 void AddMultiplierText(List<float> Multiplier,string mtype)
                 {
@@ -398,7 +438,7 @@ public static class K
             style_Kapitalism_PartPriceSetterPopup.width = Width;
             style_Kapitalism_PartPriceSetterPopup.height = Height;
             style_Kapitalism_PartPriceSetterPopup.backgroundImage = AssetManager.GetAsset("administrationbg.png");
-            style_Kapitalism_PartPriceSetterPopup.position = Position.Absolute;
+            style_Kapitalism_PartPriceSetterPopup.position = UnityEngine.UIElements.Position.Absolute;
             style_Kapitalism_PartPriceSetterPopup.left = 700;
             style_Kapitalism_PartPriceSetterPopup.top = 0;
             //margin
@@ -422,7 +462,7 @@ public static class K
             Kapitalism_PartPriceSetterPopup_accept.clickable = new Clickable(() => {
 
                 PartCostData.First(p => p.partName == Kapitalism_PartPriceSetterPopup_selectedPart.text).cost = int.Parse(Kapitalism_PartPriceSetterPopup_selectedPart_Price.value);
-                File.WriteAllText($"./BepInEx/plugins/Kapitalsim/PartData.json", JsonConvert.SerializeObject(PartCostData));
+                File.WriteAllText($"./BepInEx/plugins/Kapitalism/PartData.json", JsonConvert.SerializeObject(PartCostData));
                 PartPriceSetterPopupPopupWindow.rootVisualElement.visible = false;
             });
             Kapitalism_PartPriceSetterPopup.Add(Kapitalism_PartPriceSetterPopup_accept);
@@ -464,12 +504,75 @@ public static class K
 
             Label KapitalismStats_window_Cost = Element.Label("KapitalismStats_window_Cost", $"£{saveData.Budget + saveData.Funds}");
             KapitalismStats_window.Add(KapitalismStats_window_Cost);
+
+            
+            Label KapitalismStats_window_Spend_Part = Element.Label("KapitalismStats_window_Spend_Part", $"Part costs £{0}");
+            KapitalismStats_window_Spend_Part.visible = false;
+            KapitalismStats_window.Add(KapitalismStats_window_Spend_Part);
+
+            Label KapitalismStats_window_Spend_Material = Element.Label("KapitalismStats_window_Spend_Material", $"Material costs £{0}");
+            KapitalismStats_window_Spend_Material.visible = false;
+            KapitalismStats_window.Add(KapitalismStats_window_Spend_Material);
+
             Label KapitalismStats_window_Spend = Element.Label("KapitalismStats_window_Spend", $"Spend £{0}");
             KapitalismStats_window_Spend.visible = false;
             KapitalismStats_window.Add(KapitalismStats_window_Spend);
 
+
+            Label KapitalismStats_window_Spend_Left = Element.Label("KapitalismStats_window_Spend_Left", $"New Balance £{0}");
+            KapitalismStats_window_Spend_Left.visible = false;
+            KapitalismStats_window.Add(KapitalismStats_window_Spend_Left);
+
+
             KapitalismStatsWindow = Window.CreateFromElement(KapitalismStats_window);
             KapitalismStatsWindow.rootVisualElement.visible = false;
+        }
+        catch (Exception e)
+        {
+            logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
+        }
+    }
+    public static void KapitalismAdministrationMenu()
+    {
+        try
+        {
+            int Width = 1920;
+            int Height = 1080;
+
+            VisualElement KapitalismAdministration_window = Element.Root("KapitalismAdministration_window");
+            IStyle style_KapitalismAdministration_window = KapitalismAdministration_window.style;
+            style_KapitalismAdministration_window.width = Width;
+            style_KapitalismAdministration_window.height = Height;
+            style_KapitalismAdministration_window.position = Position.Absolute;
+            style_KapitalismAdministration_window.left = 0;
+            style_KapitalismAdministration_window.top = 0;
+            //margin
+            style_KapitalismAdministration_window.marginBottom = 0;
+            style_KapitalismAdministration_window.marginTop = 0;
+            style_KapitalismAdministration_window.marginLeft = 0;
+            style_KapitalismAdministration_window.marginRight = 0;
+            //padding
+            style_KapitalismAdministration_window.paddingBottom = 0;
+            style_KapitalismAdministration_window.paddingTop = 0;
+            style_KapitalismAdministration_window.paddingLeft = 0;
+            style_KapitalismAdministration_window.paddingRight = 0;
+
+            style_KapitalismAdministration_window.backgroundColor = new StyleColor(new Color(0f, 0f, 0f, 0.75f));
+
+            VisualElement KapitalismAdministration_window_Panel = new VisualElement();
+            IStyle style_KapitalismAdministration_window_Panel = KapitalismAdministration_window_Panel.style;
+            style_KapitalismAdministration_window_Panel.width = 1880;
+            style_KapitalismAdministration_window_Panel.height = 1040;
+            style_KapitalismAdministration_window_Panel.left = 20;
+            style_KapitalismAdministration_window_Panel.top = 20;
+            style_KapitalismAdministration_window_Panel.backgroundColor = new StyleColor(new Color(0f, 0f, 0f, 0.90f));
+
+            KapitalismAdministration_window.Add(KapitalismAdministration_window_Panel);
+
+            Label KapitalismAdministration_window_Panel_Title = Element.Label("KapitalismAdministration_window_Panel_Title", $"Administration");
+
+            KapitalismAdministrationWindow = Window.CreateFromElement(KapitalismAdministration_window);
+            KapitalismAdministrationWindow.rootVisualElement.visible = false;
         }
         catch (Exception e)
         {
@@ -483,7 +586,16 @@ public static class K
         {
             if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.KerbalSpaceCenter)
             {
-
+                GameManager.Instance._game.ResourceDefinitionDatabase._resourceDefinitionWrappers.ForEach(w => {
+                    try
+                    {
+                        K.saveData.MaterialStorage.Add(w.originalResourceDefinition.Value.name, 0f);
+                    }
+                    catch (Exception e)
+                    {
+                        return;
+                    }
+                });
             }
         }
         catch (Exception e)
@@ -502,21 +614,25 @@ public static class K
 
                 KapitalismStatsWindow.rootVisualElement.visible = true;
                 setSpendDisplayMode(false);
+                UpdateDisplay();
             }
             if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.MissionControl && KapitalismStatsWindow.rootVisualElement.visible == false)
             {
                 KapitalismStatsWindow.rootVisualElement.visible = true;
                 setSpendDisplayMode(false);
+                UpdateDisplay();
             }
             if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.ResearchAndDevelopment && KapitalismStatsWindow.rootVisualElement.visible == false)
             {
                 KapitalismStatsWindow.rootVisualElement.visible = true;
                 setSpendDisplayMode(false);
+                UpdateDisplay();
             }
             if (GameManager.Instance.Game.GlobalGameState.GetGameState().GameState == GameState.FlightView && KapitalismStatsWindow.rootVisualElement.visible == true)
             {
                 KapitalismStatsWindow.rootVisualElement.visible = false;
                 setSpendDisplayMode(false);
+                UpdateDisplay();
             }
             try
             {
@@ -525,6 +641,7 @@ public static class K
                 {
                     saveData.CurrentYear = dateTime.Years;
                     UpdateBudget();
+                    UpdateDisplay();
                 }
             }
             catch (Exception e)
@@ -536,21 +653,65 @@ public static class K
                 if (KapitalismStatsWindow.rootVisualElement.visible == false)
                 {
                     KapitalismStatsWindow.rootVisualElement.visible = true;
-                    
+                    UpdateDisplay();
+
                 }
                 setSpendDisplayMode(true);
                 float totalCost = 0;
-                try{
+                float resourceCost = 0;
+                Dictionary<string, float> UsedResources = new Dictionary<string, float>();
+                
+                try
+                {
+                    ResourceDefinitionDatabase rdd = GameManager.Instance._game.ResourceDefinitionDatabase;
                     GameManager.Instance.Game.OAB.Current.eventsManager.builder.Stats.MainAssembly.Parts.ForEach(part =>
                     {
+                        
                         totalCost += GameManager.Instance.Game.Parts._partData[part.PartName].data.cost;
+                        part.Containers.ForEach(rd =>
+                            {
+                                if (rdd.IsResourceRecipe(rd.First()))
+                                {
+                                    List<ResourceUnitsPair> unitsOfIngredients = new List<ResourceUnitsPair>();
+                                    rdd.GetRecipeIngredientUnits(rd.First(), rd.Count, ref unitsOfIngredients);
+                                    unitsOfIngredients.ForEach(RUP =>
+                                    {
+                                        string trd = rdd.GetResourceNameFromID(RUP.resourceID);
+                                        if (!UsedResources.ContainsKey(trd))
+                                        {
+                                            UsedResources.Add(trd, 0f);
+                                        }
+                                        UsedResources[trd] += (float)RUP.units;
+                                    });
+                                }
+                                else
+                                {
+                                    if (!UsedResources.ContainsKey(rdd.GetResourceNameFromID(rd.First())))
+                                    {
+                                        UsedResources.Add(rdd.GetResourceNameFromID(rd.First()), 0f);
+                                    }
+                                    UsedResources[rdd.GetResourceNameFromID(rd.First())] += (float)rd.GetResourceStoredUnits(rd.First());
+                                }
+                                
+                            });
+                        
                     });
+                        UsedResources.ForEach(kv =>
+                        {
+                            if (saveData.MaterialStorage[kv.Key] < kv.Value)
+                            {
+                                float amountToCalc = kv.Value - saveData.MaterialStorage[kv.Key];
+                                ResourceDefinitionWrapper ResourceDef = rdd._resourceDefinitionWrappers.Find(x => x.resourceID == rdd.GetResourceIDFromName(kv.Key));
+                                resourceCost = amountToCalc * ((float)ResourceDef.originalResourceDefinition.Value.costPerUnit * 1000);
+                            }
+                        });
+                        
                 }
                 catch(Exception e)
                 {
-                    
+                    logger.Error($"{e}\n{e.Message}\n{e.InnerException}\n{e.Source}\n{e.Data}\n{e.HelpLink}\n{e.HResult}\n{e.StackTrace}\n{e.TargetSite}\n{e.GetBaseException()}");
                 }
-                UpdateSpendDisplay(totalCost);
+                UpdateSpendDisplay(totalCost, resourceCost);
                 if (Input.GetMouseButtonDown(1) && config.PartCostEditor)
                 {
                     justClicked = true;
@@ -631,10 +792,15 @@ public static class Kpatch
                 if (File.Exists(SaveLocation))
                 {
                     K.saveData = JsonConvert.DeserializeObject<SaveData>(File.ReadAllText(SaveLocation));
+                  
+                    K.UpdateDisplay();
                 }
                 else
                 {
+                    
+                    
                     File.WriteAllText(SaveLocation, JsonConvert.SerializeObject(K.saveData));
+                    K.UpdateDisplay();
                 }
             }
             void DeleteSave()
@@ -643,6 +809,7 @@ public static class Kpatch
                 {
                     File.Delete(SaveLocation);
                     File.Delete(SaveLocationM);
+                    K.UpdateDisplay();
                 }
                 catch(Exception e)
                 {
@@ -654,11 +821,13 @@ public static class Kpatch
             void SaveSave()
             {
                 File.WriteAllText(SaveLocation, JsonConvert.SerializeObject(K.saveData));
+                K.UpdateDisplay();
             }
 
             void SaveToBuffer()
             {
                 K.BuffersaveData = JsonConvert.SerializeObject(K.saveData);
+                K.UpdateDisplay();
             }
             void LoadFromBuffer()
             {
@@ -670,6 +839,7 @@ public static class Kpatch
                     K.saveData = JsonConvert.DeserializeObject<SaveData>(K.BuffersaveData);
                     K.BuffersaveData = "";
                 }
+                K.UpdateDisplay();
             }
             logger.Debug($"{loadOrSaveCampaignTicket._loadOrSaveCampaignOperation}");
             switch (loadOrSaveCampaignTicket._loadOrSaveCampaignOperation)
@@ -763,16 +933,59 @@ public static class Kpatch
         try
         {
             float totalCost = 0;
+            float resourceCost = 0;
+            Dictionary<string, float> UsedResources = new Dictionary<string, float>();
+            ResourceDefinitionDatabase rdd = GameManager.Instance._game.ResourceDefinitionDatabase;
+
+
             if (__instance.builder.Stats.HasMainAssembly)
             {
                 __instance.builder.Stats.MainAssembly.Parts.ForEach(part =>
                 {
+
                     totalCost += GameManager.Instance.Game.Parts._partData[part.PartName].data.cost;
+                    part.Containers.ForEach(rd =>
+                    {
+                        if (rdd.IsResourceRecipe(rd.First()))
+                        {
+                            List<ResourceUnitsPair> unitsOfIngredients = new List<ResourceUnitsPair>();
+                            rdd.GetRecipeIngredientUnits(rd.First(), rd.Count, ref unitsOfIngredients);
+                            unitsOfIngredients.ForEach(RUP =>
+                            {
+                                string trd = rdd.GetResourceNameFromID(RUP.resourceID);
+                                if (!UsedResources.ContainsKey(trd))
+                                {
+                                    UsedResources.Add(trd, 0f);
+                                }
+                                UsedResources[trd] += (float)RUP.units;
+                            });
+                        }
+                        else
+                        {
+                            if (!UsedResources.ContainsKey(rdd.GetResourceNameFromID(rd.First())))
+                            {
+                                UsedResources.Add(rdd.GetResourceNameFromID(rd.First()), 0f);
+                            }
+                            UsedResources[rdd.GetResourceNameFromID(rd.First())] += (float)rd.GetResourceStoredUnits(rd.First());
+                        }
+
+                    });
+                });
+                UsedResources.ForEach(kv =>
+                {
+                    
+                    if (K.saveData.MaterialStorage[kv.Key] < kv.Value)
+                    {
+                        float amountToCalc = kv.Value - K.saveData.MaterialStorage[kv.Key];
+                        ResourceDefinitionWrapper ResourceDef = rdd._resourceDefinitionWrappers.Find(x => x.resourceID == rdd.GetResourceIDFromName(kv.Key));
+                        resourceCost = amountToCalc * ((float)ResourceDef.originalResourceDefinition.Value.costPerUnit * 1000);
+                    }
                 });
             }
             K.LaunchClickBuffersaveData = JsonConvert.SerializeObject(K.saveData);
-            if (K.UseFunding(totalCost))
+            if (K.UseFunding(totalCost + resourceCost))
             {
+                K.UseResources(UsedResources);
                 __result = true;
             }
             else
@@ -787,7 +1000,18 @@ public static class Kpatch
             __result = false;
             Utils.MessageUser("Kapitalism error");
         }
+
+
+
         
+        try
+        {
+            
+        }
+        catch (Exception e)
+        {
+
+        }
     }
     [HarmonyPatch(typeof(ScienceManager))]
     [HarmonyPatch("TrySubmitCompletedResearchReport")]
@@ -798,6 +1022,7 @@ public static class Kpatch
         {
             float Funds =  report.FinalScienceValue * (K.saveData.ScienceModifier * 76);
             K.UpdateFunds(Funds);
+            K.UpdateDisplay();
         }
         catch (Exception e)
         {
@@ -825,12 +1050,12 @@ public static class Kpatch
     //        __instance._game.UI.SetLoadingBarText("Loading Kapitalism Missions"); 
     //        __instance._resolve = resolve;
 
-    //        Directory.GetFiles($"./BepInEx/plugins/Kapitalsim/assets/missions").ForEach(file =>
+    //        Directory.GetFiles($"./BepInEx/plugins/Kapitalism/assets/missions").ForEach(file =>
     //        {
     //            __instance._game.UI.SetLoadingBarText($"Loading Kapitalism Mission {file}");
     //            __instance._game.KSP2MissionManager.OnMissionDataItemLoaded(new TextAsset(File.ReadAllText(file)));
     //        });
-    //        Directory.GetFiles($"./BepInEx/plugins/Kapitalsim/assets/updatemissions").ForEach(file =>
+    //        Directory.GetFiles($"./BepInEx/plugins/Kapitalism/assets/updatemissions").ForEach(file =>
     //        {
     //            __instance._game.UI.SetLoadingBarText($"Loading Kapitalism Mission reward patches {file}");
     //            MissionRewardUpdate rewardChanges = JsonConvert.DeserializeObject<MissionRewardUpdate>(File.ReadAllText(file));
@@ -880,6 +1105,16 @@ public static class Kpatch
 
     //    }
     //}
+
+    [HarmonyPatch(typeof(PopulateResourceDefinitionDatabaseFlowAction))]
+    [HarmonyPatch("OnResourceDataLoaded")]
+    [HarmonyPrefix]
+    public static bool PopulateResourceDefinitionDatabaseFlowAction_OnResourceDataLoaded(PopulateResourceDefinitionDatabaseFlowAction __instance, TextAsset asset)
+    {
+        GameManager.Instance.Game.UI.SetLoadingBarText("Loading Kapitalism Missions");
+        File.WriteAllText($"./{JsonConvert.DeserializeObject<ResourceCore>(asset.text).data.name}.json", asset.text);
+        return true;
+    }
     public static float[] GetKapitalismMissionData(MissionData missionData)
     {
         float[] Rewards = {0,0 };
