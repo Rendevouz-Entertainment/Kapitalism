@@ -20,6 +20,9 @@
 		<PackageReference Include="UitkForKsp2" Version="2.1.0" Publicize="true" />
 	</ItemGroup>
 	<ItemGroup>
+		<Reference Include="ReLIB">
+			<HintPath>..\ModBuild\ReLIB\BepInEx\plugins\ReLIB\ReLIB.dll</HintPath>
+		</Reference>
 		<Reference Include="0Harmony">
 			<HintPath>..\external_dlls\0Harmony.dll</HintPath>
 		</Reference>
@@ -148,9 +151,6 @@
 		</Reference>
 		<Reference Include="PuppeteerSharp">
 			<HintPath>..\external_dlls\PuppeteerSharp.dll</HintPath>
-		</Reference>
-		<Reference Include="ShadowUtilityLIB">
-			<HintPath>C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program 2\BepInEx\plugins\ShadowUtilityLIB\ShadowUtilityLIB.dll</HintPath>
 		</Reference>
 		<Reference Include="ShapesRuntime">
 			<HintPath>..\external_dlls\ShapesRuntime.dll</HintPath>
